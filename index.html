@@ -1,0 +1,220 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>South Sudan Cattle Movement – MVP</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+
+  <!-- Leaflet CSS -->
+  <link
+    rel="stylesheet"
+    href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+  />
+
+  <style>
+    body { margin: 0; font-family: Arial, sans-serif; }
+    .topbar {
+      padding: 10px;
+      background: #0f172a;
+      color: white;
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+    .pill {
+      padding: 6px 10px;
+      border-radius: 20px;
+      background: rgba(255,255,255,0.15);
+      cursor: pointer;
+      font-size: 13px;
+    }
+    .pill.active {
+      background: #22c55e;
+      color: #0f172a;
+      font-weight: bold;
+    }
+    .wrap {
+      display: grid;
+      grid-template-columns: 1fr 320px;
+      height: calc(100vh - 50px);
+    }
+    #map { height: 100%; }
+    .side {
+      border-left: 1px solid #ddd;
+      padding: 10px;
+      background: #fafafa;
+      overflow-y: auto;
+    }
+    .card {
+      background: white;
+      border: 1px solid #ddd;
+      border-radius: 10px;
+      padding: 10px;
+      margin-bottom: 10px;
+    }
+    .label { font-size: 12px; color: #555; }
+    .small { font-size: 13px; }
+    select, input[type="range"] { width: 100%; }
+  </style>
+</head>
+
+<body>
+
+<div class="topbar">
+  <b>South Sudan Cattle Movement – UN Demo</b>
+  <div id="bBaseline" class="pill active">Baseline</div>
+  <div id="bCurrent" class="pill">Current</div>
+  <div id="bForecast" class="pill">Forecast</div>
+  <div id="bAnomaly" class="pill">Deviations</div>
+</div>
+
+<div class="wrap">
+  <div id="map"></div>
+
+  <div class="side">
+    <div class="card">
+      <div class="label">Month</div>
+      <input id="monthSlider" type="range" min="1" max="12" value="1">
+      <div class="small">Month: <b id="monthText">January</b></div>
+    </div>
+
+    <div class="card">
+      <div class="label">Explanation</div>
+      <div id="explain" class="small"></div>
+    </div>
+
+    <div class="card">
+      <div class="label">Deviation alerts</div>
+      <div id="alerts" class="small"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Leaflet JS -->
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+<script>
+/* ===============================
+   BASIC DEMO LOGIC (NO BACKEND)
+   =============================== */
+
+const monthNames = [
+  "January","February","March","April","May","June",
+  "July","August","September","October","November","December"
+];
+
+let mode = "baseline";
+let month = 1;
+
+/* MAP */
+const map = L.map("map").setView([7.5, 30], 6);
+L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+  attribution: "© OpenStreetMap"
+}).addTo(map);
+
+const heatLayer = L.layerGroup().addTo(map);
+const routeLayer = L.layerGroup().addTo(map);
+
+/* UI */
+const explain = document.getElementById("explain");
+const alerts = document.getElementById("alerts");
+const monthSlider = document.getElementById("monthSlider");
+const monthText = document.getElementById("monthText");
+
+/* BUTTONS */
+function setMode(newMode) {
+  mode = newMode;
+  document.querySelectorAll(".pill").forEach(b => b.classList.remove("active"));
+  document.getElementById("b" + capitalize(newMode)).classList.add("active");
+  render();
+}
+
+document.getElementById("bBaseline").onclick = () => setMode("baseline");
+document.getElementById("bCurrent").onclick = () => setMode("current");
+document.getElementById("bForecast").onclick = () => setMode("forecast");
+document.getElementById("bAnomaly").onclick = () => setMode("anomaly");
+
+/* MONTH */
+monthSlider.oninput = () => {
+  month = Number(monthSlider.value);
+  monthText.innerText = monthNames[month - 1];
+  render();
+};
+
+/* HELPERS */
+function seasonFromMonth(m) {
+  return (m >= 5 && m <= 10) ? "wet" : "dry";
+}
+
+function capitalize(s) {
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
+/* MAIN RENDER */
+function render() {
+  heatLayer.clearLayers();
+  routeLayer.clearLayers();
+
+  const season = seasonFromMonth(month);
+
+  /* Fake presence circles */
+  const centers = season === "dry"
+    ? [[7.6,29.8],[6.9,30.6],[6.2,31.3]]
+    : [[6.4,31.5],[7.2,30.8],[7.9,30.1]];
+
+  centers.forEach((c,i) => {
+    let shift = 0;
+    if (mode === "current") shift = 0.1;
+    if (mode === "forecast") shift = 0.2;
+    if (mode === "anomaly") shift = 0.3;
+
+    L.circle([c[0]+shift, c[1]+shift], {
+      radius: 30000 - i*5000,
+      color: "#2563eb",
+      fillOpacity: 0.25
+    }).addTo(heatLayer);
+  });
+
+  /* Corridor */
+  const corridor = season === "dry"
+    ? [[8.2,29],[7.5,29.8],[6.8,30.6],[6,31.4]]
+    : [[6.1,31.6],[6.9,31],[7.6,30.2],[8.1,29.5]];
+
+  L.polyline(corridor, {color:"#16a34a", weight:4}).addTo(routeLayer);
+
+  /* TEXT */
+  if (mode === "baseline") {
+    explain.innerHTML =
+      "<b>Baseline:</b> expected seasonal cattle movement pattern.";
+    alerts.innerHTML = "No deviations in baseline mode.";
+  }
+
+  if (mode === "current") {
+    explain.innerHTML =
+      "<b>Current:</b> inferred cattle presence using recent conditions.";
+    alerts.innerHTML =
+      "• Slight eastward shift vs baseline<br>• Higher clustering near water";
+  }
+
+  if (mode === "forecast") {
+    explain.innerHTML =
+      "<b>Forecast:</b> predicted movement in coming weeks.";
+    alerts.innerHTML =
+      "• Corridor likely to shift north<br>• Pasture expected to decline";
+  }
+
+  if (mode === "anomaly") {
+    explain.innerHTML =
+      "<b>Deviations:</b> difference between current and baseline.";
+    alerts.innerHTML =
+      "<b>Alert:</b> ~40 km shift detected<br>Drivers: conflict, water access";
+  }
+}
+
+/* INITIAL DRAW */
+render();
+</script>
+
+</body>
+</html>
